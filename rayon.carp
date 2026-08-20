@@ -32,26 +32,20 @@
               p-dst (Array.unsafe-raw &dst)
               chunk-sz (Par.calc-chunk-size len 4)
               num-chunks (Par.calc-num-chunks len chunk-sz)
-              futures (Array.allocate num-chunks)]
+              handle (JobSystem.create-handle num-chunks)]
           (do
             (for [i 0 num-chunks]
               (let [start (* i chunk-sz)
                     end (let [n (+ start chunk-sz)] (if (> n len) len n))
                     f-copy @f
-                    fut (async pool
-                          (do
-                            (for [idx start end]
-                              (let [src-val (Pointer.to-value (Pointer.add p-arr (Long.from-int idx)))
-                                    res-val (f-copy src-val)]
-                                (Pointer.set (Pointer.add p-dst (Long.from-int idx)) res-val)))
-                            0))]
-                (Array.aset! &futures i fut)))
-            
-            ;; Await all futures to join
-            (for [i 0 num-chunks]
-              (let [fut @(Array.unsafe-nth &futures i)
-                    u (await fut)]
-                ()))
+                    work (fn [unused]
+                           (for [idx start end]
+                             (let [src-val (Pointer.to-value (Pointer.add p-arr (Long.from-int idx)))
+                                   res-val (f-copy src-val)]
+                               (Pointer.set (Pointer.add p-dst (Long.from-int idx)) res-val))))]
+                (JobSystem.submit-lambda! pool work (Pointer.from-long 0l) handle)))
+            (JobSystem.wait handle)
+            (JobSystem.destroy-handle handle)
             dst)))))
 
   ;; --- 2. Parallel Reductions ---
@@ -62,34 +56,33 @@
         (let [p-arr (Array.unsafe-raw arr)
               chunk-sz (Par.calc-chunk-size len 4)
               num-chunks (Par.calc-num-chunks len chunk-sz)
-              futures (Array.allocate num-chunks)
-              results (Array.allocate num-chunks)]
+              results (Array.allocate num-chunks)
+              handle (JobSystem.create-handle num-chunks)]
           (do
             (for [i 0 num-chunks]
               (let [start (* i chunk-sz)
                     end (let [n (+ start chunk-sz)] (if (> n len) len n))
                     res-ptr (Pointer.unsafe-alloc identity-val)
                     op-copy @op
-                    fut (async pool
-                          (let [local-acc identity-val]
-                            (do
-                              (for [idx start end]
-                                (let [v (Pointer.to-value (Pointer.add p-arr (Long.from-int idx)))]
-                                  (set! local-acc (op-copy local-acc v))))
-                              (Pointer.set res-ptr local-acc)
-                              0)))]
+                    work (fn [unused]
+                           (let [local-acc identity-val]
+                             (do
+                               (for [idx start end]
+                                 (let [v (Pointer.to-value (Pointer.add p-arr (Long.from-int idx)))]
+                                   (set! local-acc (op-copy local-acc v))))
+                               (Pointer.set res-ptr local-acc))))]
                 (do
-                  (Array.aset! &futures i fut)
-                  (Array.aset! &results i res-ptr))))
+                  (Array.aset! &results i res-ptr)
+                  (JobSystem.submit-lambda! pool work (Pointer.from-long 0l) handle))))
+            (JobSystem.wait handle)
+            (JobSystem.destroy-handle handle)
             
             ;; Combine partial chunk accumulators
             (let [final-acc identity-val
                   op-fn @op]
               (do
                 (for [i 0 num-chunks]
-                  (let [fut @(Array.unsafe-nth &futures i)
-                        res-ptr @(Array.unsafe-nth &results i)
-                        u (await fut)]
+                  (let [res-ptr @(Array.unsafe-nth &results i)]
                     (do
                       (set! final-acc (op-fn final-acc (Pointer.to-value res-ptr)))
                       (Pointer.free res-ptr))))
@@ -104,36 +97,30 @@
               p-src-b (Array.unsafe-raw src-b)
               chunk-sz (Par.calc-chunk-size len 4)
               num-chunks (Par.calc-num-chunks len chunk-sz)
-              futures (Array.allocate num-chunks)]
+              handle (JobSystem.create-handle num-chunks)]
           (do
             (for [i 0 num-chunks]
               (let [start (* i chunk-sz)
                     end (let [n (+ start chunk-sz)] (if (> n len) len n))
                     lanes (Simd.width)
                     limit (- end (Int.mod (- end start) lanes))
-                    fut (async pool
-                          (do
-                            ;; Vector loop
-                            (let [idx start]
-                              (while (< idx limit)
-                                (let [va (Simd.load (Pointer.add p-src-a (Long.from-int idx)))
-                                      vb (Simd.load (Pointer.add p-src-b (Long.from-int idx)))
-                                      vr (+ va vb)]
-                                  (do
-                                    (Simd.store! (Pointer.add p-dst (Long.from-int idx)) vr)
-                                    (set! idx (+ idx lanes))))))
-                            ;; Scalar remainder loop
-                            (for [idx limit end]
-                              (let [val-a (Pointer.to-value (Pointer.add p-src-a (Long.from-int idx)))
-                                    val-b (Pointer.to-value (Pointer.add p-src-b (Long.from-int idx)))]
-                                (Pointer.set (Pointer.add p-dst (Long.from-int idx)) (+ val-a val-b))))
-                            0))]
-                (Array.aset! &futures i fut)))
-            
-            ;; Await all
-            (for [i 0 num-chunks]
-              (let [fut @(Array.unsafe-nth &futures i)
-                    u (await fut)]
-                ()))
-            ())))))
+                    work (fn [unused]
+                           (do
+                             ;; Vector loop
+                             (let [idx start]
+                               (while (< idx limit)
+                                 (let [va (Simd.load (Pointer.add p-src-a (Long.from-int idx)))
+                                       vb (Simd.load (Pointer.add p-src-b (Long.from-int idx)))
+                                       vr (+ va vb)]
+                                   (do
+                                     (Simd.store! (Pointer.add p-dst (Long.from-int idx)) vr)
+                                     (set! idx (+ idx lanes))))))
+                             ;; Scalar remainder loop
+                             (for [idx limit end]
+                               (let [val-a (Pointer.to-value (Pointer.add p-src-a (Long.from-int idx)))
+                                     val-b (Pointer.to-value (Pointer.add p-src-b (Long.from-int idx)))]
+                                 (Pointer.set (Pointer.add p-dst (Long.from-int idx)) (+ val-a val-b))))))]
+                (JobSystem.submit-lambda! pool work (Pointer.from-long 0l) handle)))
+            (JobSystem.wait handle)
+            (JobSystem.destroy-handle handle))))))
 )
