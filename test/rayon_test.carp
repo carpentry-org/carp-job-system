@@ -1,0 +1,49 @@
+(load "Test.carp")
+(use Test)
+(load "../rayon.carp")
+
+(defn square-fn [x] (* x x))
+(defn add-fn [a b] (+ a b))
+
+(deftest rayon-test
+  (let [state (Test.State.init 0 0)
+        pool (JobSystem.create-pool 4)]
+    (do
+      ;; 1. Test Rayon.join (Fork-Join)
+      (let [pair (Rayon.join pool (* 10 10) (* 20 20))]
+        (do
+          (set! state (assert-equal &state 100 @(Pair.a &pair) "join left (10*10) = 100"))
+          (set! state (assert-equal &state 400 @(Pair.b &pair) "join right (20*20) = 400"))))
+
+      ;; 2. Test Par.map (Parallel Transform)
+      (let [input [1 2 3 4 5 6 7 8]
+            output (Par.map pool &input &square-fn)]
+        (do
+          (set! state (assert-equal &state 1 @(Array.unsafe-nth &output 0) "Par.map [0] = 1"))
+          (set! state (assert-equal &state 16 @(Array.unsafe-nth &output 3) "Par.map [3] = 16"))
+          (set! state (assert-equal &state 64 @(Array.unsafe-nth &output 7) "Par.map [7] = 64"))))
+
+      ;; 3. Test Par.reduce (Parallel Sum Reduction)
+      (let [nums [10 20 30 40 50 60 70 80]
+            sum-result (Par.reduce pool &nums 0 &add-fn)]
+        (set! state (assert-equal &state 360 sum-result "Par.reduce sum = 360")))
+
+      ;; 4. Test Par.simd-add! (Parallel + SIMD Combined Pipeline)
+      (let [size 5000
+            dst (Array.allocate size)
+            src-a (Array.allocate size)
+            src-b (Array.allocate size)]
+        (do
+          (for [i 0 size]
+            (do
+              (Pointer.set (Pointer.add (Array.unsafe-raw &src-a) (Long.from-int i)) 1.5f)
+              (Pointer.set (Pointer.add (Array.unsafe-raw &src-b) (Long.from-int i)) 2.5f)))
+          
+          (Par.simd-add! pool &dst &src-a &src-b)
+          
+          (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 0) "Par.simd-add! start element is 4.0"))
+          (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 2500) "Par.simd-add! mid element is 4.0"))
+          (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 4999) "Par.simd-add! tail element is 4.0"))))
+
+      (JobSystem.destroy-pool pool)
+      state)))
