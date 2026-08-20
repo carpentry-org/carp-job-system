@@ -42,17 +42,17 @@
     }")
 
   ;; Closure Dispatch (generic return type to support both Unit and () cleanly)
-  (deftemplate submit-lambda! (Fn [(Ptr ThreadPool) (Fn [(Ptr ())] a) (Ptr JobHandle)] ())
-    "void $NAME(thread_pool_t *pool, Lambda work, job_handle_t *handle)"
+  (deftemplate submit-lambda! (Fn [(Ptr ThreadPool) (Fn [(Ptr ())] a) (Ptr ()) (Ptr JobHandle)] ())
+    "void $NAME(thread_pool_t *pool, Lambda work, void *data, job_handle_t *handle)"
     "$DECL {
-        thread_pool_submit_closure(pool, work.callback, work.env, handle);
+        thread_pool_submit_closure(pool, work.callback, work.env, data, handle);
     }")
 
   ;; Parallel For Driver (generic return type to support both Unit and () cleanly)
   (deftemplate parallel-for! (Fn [(Ptr ThreadPool) Int Int (Fn [Int (Ptr ())] a) (Ptr ())] ())
     "void $NAME(thread_pool_t *pool, int count, int chunk_size, Lambda func, void *data)"
     "$DECL {
-        thread_pool_parallel_for(pool, count, chunk_size, (parallel_for_fn)func.callback, data);
+        thread_pool_parallel_for(pool, count, chunk_size, (parallel_for_raw_fn)func.callback, data);
     }")
 
   ;; Generic Uninitialized Type Allocator
@@ -81,7 +81,7 @@
                    (let [u (the (Ptr ()) unused)] 
                      (Pointer.set res %expr)))]
      (do
-       (JobSystem.submit-lambda! %pool work handle)
+       (JobSystem.submit-lambda! %pool work (Pointer.from-long (Pointer.to-long res)) handle)
        (Future.init handle res))))
 
 ;; Await: blocks until complete, returns the owned value, and frees memory

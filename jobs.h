@@ -9,11 +9,6 @@
 // --- Job & Callback Definitions ---
 typedef void (*job_work_fn)(void *data);
 
-typedef struct {
-    void *callback;
-    void *env;
-} carp_lambda_t;
-
 typedef struct job_handle {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
@@ -181,25 +176,27 @@ static inline void job_handle_destroy(job_handle_t *h) {
 }
 
 // --- Closure Runner Trampoline ---
-typedef void (*carp_closure_fn)(void *env, void *unused);
+typedef void (*carp_closure_two_arg_fn)(void *env, void *data);
 
 typedef struct {
-    carp_closure_fn fn;
+    carp_closure_two_arg_fn fn;
     void *env;
+    void *data;
 } closure_runner_t;
 
 static void closure_runner_exec(void *data) {
     closure_runner_t *runner = (closure_runner_t*)data;
     if (runner->fn) {
-        runner->fn(runner->env, NULL);
+        runner->fn(runner->env, runner->data);
     }
     free(runner);
 }
 
-static inline void thread_pool_submit_closure(thread_pool_t *pool, void *callback, void *env, job_handle_t *handle) {
+static inline void thread_pool_submit_closure(thread_pool_t *pool, void *callback, void *env, void *data, job_handle_t *handle) {
     closure_runner_t *runner = (closure_runner_t*)malloc(sizeof(closure_runner_t));
-    runner->fn = (carp_closure_fn)callback;
+    runner->fn = (carp_closure_two_arg_fn)callback;
     runner->env = env;
+    runner->data = data;
     
     job_t job = {
         .work = closure_runner_exec,
@@ -210,10 +207,10 @@ static inline void thread_pool_submit_closure(thread_pool_t *pool, void *callbac
 }
 
 // --- Parallel For Helper ---
-typedef void (*parallel_for_fn)(int index, void *data);
+typedef void (*parallel_for_raw_fn)(int index, void *data);
 
 typedef struct {
-    parallel_for_fn func;
+    parallel_for_raw_fn func;
     void *data;
     int start;
     int end;
@@ -227,7 +224,7 @@ static void parallel_job_wrapper(void *arg) {
     free(p);
 }
 
-static inline void thread_pool_parallel_for(thread_pool_t *pool, int count, int chunk_size, parallel_for_fn func, void *data) {
+static inline void thread_pool_parallel_for(thread_pool_t *pool, int count, int chunk_size, parallel_for_raw_fn func, void *data) {
     if (count <= 0 || chunk_size <= 0) return;
     int num_chunks = (count + chunk_size - 1) / chunk_size;
     job_handle_t *handle = job_handle_create(num_chunks);
