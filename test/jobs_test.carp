@@ -3,27 +3,17 @@
 (load "jobs.carp")
 (use JobSystem)
 
-;; Helper function to cast pointers in Carp
 (defn pointer-cast [p]
   (Pointer.from-long (Pointer.to-long p)))
 
-;; The parallel-for loop index callback
 (defn set-index [idx data-ptr]
   (let [p (the (Ptr Float) (pointer-cast data-ptr))]
     (Pointer.set (Pointer.add p (Long.from-int idx)) (Float.from-int (+ idx 100)))))
-
-;; Dummy calls to force compiler concretization of functions used in C callbacks
-(defn force-concretization []
-  (do
-    (when false
-      (set-index 0 (the (Ptr ()) (Pointer.from-long 0l))))))
 
 (deftest jobs-test
   (let [state (Test.State.init 0 0)
         pool (JobSystem.create-pool 4)]
     (do
-      (force-concretization)
-
       ;; 1. Verify High-Level async/await Macros
       (let [t1 (async pool (* 2.0f 2.0f))
             t2 (async pool (* 3.0f 3.0f))
@@ -33,7 +23,7 @@
           (set! state (assert-equal &state 4.0f v1 "async/await Task 1 (2*2) = 4.0"))
           (set! state (assert-equal &state 9.0f v2 "async/await Task 2 (3*3) = 9.0"))))
 
-      ;; 2. Verify High-Level Parallel-For loop driver (C engine)
+      ;; 2. Verify High-Level Parallel-For loop driver
       (let [arr [0.0f 0.0f 0.0f 0.0f 0.0f 0.0f 0.0f 0.0f 0.0f 0.0f]
             p-arr (Array.unsafe-raw &arr)]
         (do

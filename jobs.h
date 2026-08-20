@@ -6,8 +6,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// --- Job Definition ---
+// --- Job & Callback Definitions ---
 typedef void (*job_work_fn)(void *data);
+
+typedef struct {
+    void *callback;
+    void *env;
+} carp_lambda_t;
 
 typedef struct job_handle {
     pthread_mutex_t mutex;
@@ -128,7 +133,6 @@ static inline thread_pool_t* thread_pool_create(int num_threads) {
 }
 
 static inline void thread_pool_destroy(thread_pool_t *pool) {
-    // Push exactly one tombstone per thread
     for (int i = 0; i < pool->num_threads; i++) {
         job_t tombstone = { .work = NULL, .data = NULL, .handle = NULL };
         job_queue_push(pool->queue, tombstone);
@@ -174,6 +178,35 @@ static inline void job_handle_destroy(job_handle_t *h) {
     pthread_mutex_destroy(&h->mutex);
     pthread_cond_destroy(&h->cond);
     free(h);
+}
+
+// --- Closure Runner Trampoline ---
+typedef void (*carp_closure_fn)(void *env, void *unused);
+
+typedef struct {
+    carp_closure_fn fn;
+    void *env;
+} closure_runner_t;
+
+static void closure_runner_exec(void *data) {
+    closure_runner_t *runner = (closure_runner_t*)data;
+    if (runner->fn) {
+        runner->fn(runner->env, NULL);
+    }
+    free(runner);
+}
+
+static inline void thread_pool_submit_closure(thread_pool_t *pool, void *callback, void *env, job_handle_t *handle) {
+    closure_runner_t *runner = (closure_runner_t*)malloc(sizeof(closure_runner_t));
+    runner->fn = (carp_closure_fn)callback;
+    runner->env = env;
+    
+    job_t job = {
+        .work = closure_runner_exec,
+        .data = runner,
+        .handle = handle
+    };
+    job_queue_push(pool->queue, job);
 }
 
 // --- Parallel For Helper ---
