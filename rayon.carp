@@ -123,4 +123,115 @@
                 (JobSystem.submit-lambda! pool work (Pointer.from-long 0l) handle)))
             (JobSystem.wait handle)
             (JobSystem.destroy-handle handle))))))
+
+  ;; --- 4. Parallel In-Place Iteration ---
+  (defn for-each! [pool arr f]
+    (let [len (Array.length arr)]
+      (when (> len 0)
+        (let [p-arr (Array.unsafe-raw arr)
+              chunk-sz (Par.calc-chunk-size len 4)
+              num-chunks (Par.calc-num-chunks len chunk-sz)
+              handle (JobSystem.create-handle num-chunks)]
+          (do
+            (for [i 0 num-chunks]
+              (let [start (* i chunk-sz)
+                    end (let [n (+ start chunk-sz)] (if (> n len) len n))
+                    f-copy @f
+                    work (fn [unused]
+                           (for [idx start end]
+                             (f-copy (Array.unsafe-nth arr idx))))]
+                (JobSystem.submit-lambda! pool work (Pointer.from-long 0l) handle)))
+            (JobSystem.wait handle)
+            (JobSystem.destroy-handle handle))))))
+
+  ;; --- 5. Parallel Filter ---
+  (defn filter [pool arr pred]
+    (let [len (Array.length arr)]
+      (if (= len 0)
+        []
+        (let [p-arr (Array.unsafe-raw arr)
+              chunk-sz (Par.calc-chunk-size len 4)
+              num-chunks (Par.calc-num-chunks len chunk-sz)
+              chunk-results (Array.allocate num-chunks)
+              p-chunk-results (Array.unsafe-raw &chunk-results)
+              handle (JobSystem.create-handle num-chunks)]
+          (do
+            (for [i 0 num-chunks]
+              (let [start (* i chunk-sz)
+                    end (let [n (+ start chunk-sz)] (if (> n len) len n))
+                    pred-copy @pred
+                    work (fn [unused]
+                           (let [res-arr (Array.allocate 0)]
+                             (do
+                               (for [idx start end]
+                                 (let [val (Pointer.to-value (Pointer.add p-arr (Long.from-int idx)))]
+                                   (when (pred-copy &val)
+                                     (set! res-arr (Array.push-back res-arr val)))))
+                               (Pointer.set (Pointer.add p-chunk-results (Long.from-int i)) res-arr))))]
+                (JobSystem.submit-lambda! pool work (Pointer.from-long 0l) handle)))
+            (JobSystem.wait handle)
+            (JobSystem.destroy-handle handle)
+            
+            ;; Concatenate results sequentially
+            (let [total-len 0]
+              (do
+                (for [i 0 num-chunks]
+                  (set! total-len (+ total-len (Array.length (Array.unsafe-nth &chunk-results i)))))
+                (let [dst (Array.allocate total-len)
+                      dst-idx 0]
+                  (do
+                    (for [i 0 num-chunks]
+                      (let [sub-arr @(Array.unsafe-nth &chunk-results i)
+                            sub-len (Array.length &sub-arr)]
+                        (do
+                          (for [j 0 sub-len]
+                            (do
+                              (Array.aset! &dst dst-idx @(Array.unsafe-nth &sub-arr j))
+                              (set! dst-idx (+ dst-idx 1)))))))
+                    dst)))))))))
+
+  ;; --- 6. Parallel Find ---
+  (defn find [pool arr pred]
+    (let [len (Array.length arr)]
+      (if (= len 0)
+        (Maybe.Nothing)
+        (let [p-arr (Array.unsafe-raw arr)
+              chunk-sz (Par.calc-chunk-size len 4)
+              num-chunks (Par.calc-num-chunks len chunk-sz)
+              results (Array.allocate num-chunks)
+              p-results (Array.unsafe-raw &results)
+              handle (JobSystem.create-handle num-chunks)]
+          (do
+            (for [i 0 num-chunks]
+              (Array.aset! &results i -1))
+            
+            (for [i 0 num-chunks]
+              (let [start (* i chunk-sz)
+                    end (let [n (+ start chunk-sz)] (if (> n len) len n))
+                    pred-copy @pred
+                    work (fn [unused]
+                           (let [found -1
+                                 idx start]
+                             (do
+                               (while (and (< idx end) (= found -1))
+                                 (let [val (Pointer.to-value (Pointer.add p-arr (Long.from-int idx)))]
+                                   (do
+                                     (when (pred-copy &val)
+                                       (set! found idx))
+                                     (set! idx (+ idx 1)))))
+                               (Pointer.set (Pointer.add p-results (Long.from-int i)) found))))]
+                (JobSystem.submit-lambda! pool work (Pointer.from-long 0l) handle)))
+            (JobSystem.wait handle)
+            (JobSystem.destroy-handle handle)
+            
+            ;; Scan chunk results to find the first match
+            (let [winner -1]
+              (do
+                (for [i 0 num-chunks]
+                  (let [res @(Array.unsafe-nth &results i)]
+                    (when (and (= winner -1) (/= res -1))
+                      (set! winner res))))
+                (if (= winner -1)
+                  (Maybe.Nothing)
+                  (Maybe.Just @(Array.unsafe-nth arr winner))))))))))
 )

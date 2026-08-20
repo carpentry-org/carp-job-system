@@ -2,8 +2,22 @@
 (use Test)
 (load "../rayon.carp")
 
+(deftemplate ref-to-ptr (Fn [(Ref a)] (Ptr a))
+  "void* $NAME(void* r)"
+  "$DECL { return r; }")
+
 (defn square-fn [x] (* x x))
 (defn add-fn [a b] (+ a b))
+(defn increment-ref [r]
+  (let [p (ref-to-ptr r)
+        val @r]
+    (Pointer.set p (+ val 1))))
+(defn gt-five? [x] (> @x 5))
+(defn get-just-val [m]
+  (match m
+    (Maybe.Just x) x
+    Maybe.Nothing 0))
+
 
 (deftest rayon-test
   (let [state (Test.State.init 0 0)
@@ -51,6 +65,32 @@
           (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 0) "Par.simd-add! start = 4.0"))
           (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 2500) "Par.simd-add! mid = 4.0"))
           (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 5002) "Par.simd-add! tail = 4.0"))))
+
+
+      ;; 5. Par.for-each! test (in-place mutation)
+      (let [arr [1 2 3 4]]
+        (do
+          (Par.for-each! pool &arr &increment-ref)
+          (set! state (assert-equal &state 2 @(Array.unsafe-nth &arr 0) "Par.for-each! mutated element 0"))
+          (set! state (assert-equal &state 5 @(Array.unsafe-nth &arr 3) "Par.for-each! mutated element 3"))))
+
+      ;; 6. Par.filter test (filtering values > 5)
+      (let [input [2 4 6 8 10]
+            output (Par.filter pool &input &gt-five?)]
+        (do
+          (set! state (assert-equal &state 3 (Array.length &output) "Par.filter length = 3"))
+          (set! state (assert-equal &state 6 @(Array.unsafe-nth &output 0) "Par.filter [0] = 6"))
+          (set! state (assert-equal &state 10 @(Array.unsafe-nth &output 2) "Par.filter [2] = 10"))))
+
+      ;; 7. Par.find test (find first value > 5)
+      (let [input [2 4 6 8 10]
+            input-none [1 2 3]
+            res (Par.find pool &input &gt-five?)
+            res-none (Par.find pool &input-none &gt-five?)]
+        (do
+          (set! state (assert-true &state (Maybe.just? &res) "Par.find matches is Just"))
+          (set! state (assert-equal &state 6 (get-just-val res) "Par.find matches first element = 6"))
+          (set! state (assert-true &state (Maybe.nothing? &res-none) "Par.find no match is Nothing"))))
 
       (JobSystem.destroy-pool pool)
       state)))
