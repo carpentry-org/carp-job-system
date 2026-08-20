@@ -9,10 +9,16 @@
 // --- Job Definition ---
 typedef void (*job_work_fn)(void *data);
 
+typedef struct job_handle {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    int32_t count;
+} job_handle_t;
+
 typedef struct {
     job_work_fn work;
     void *data;
-    volatile int32_t *completion_counter;
+    job_handle_t *handle;
 } job_t;
 
 // --- Thread-Safe Queue ---
@@ -48,7 +54,6 @@ static inline void job_queue_destroy(job_queue_t *q) {
 static inline void job_queue_push(job_queue_t *q, job_t job) {
     pthread_mutex_lock(&q->mutex);
     while (q->count >= q->capacity) {
-        // Queue is full, expand capacity dynamically
         int new_capacity = q->capacity * 2;
         job_t *new_jobs = (job_t*)malloc(new_capacity * sizeof(job_t));
         for (int i = 0; i < q->count; i++) {
@@ -84,25 +89,27 @@ typedef struct {
     pthread_t *threads;
     int num_threads;
     job_queue_t *queue;
-    volatile bool running;
 } thread_pool_t;
 
 static void* worker_thread_fn(void *arg) {
     thread_pool_t *pool = (thread_pool_t*)arg;
-    while (pool->running) {
+    while (1) {
         job_t job = job_queue_pop(pool->queue);
         
-        // If it's a shutdown tombstone or the pool is not running, exit
-        if (job.work == NULL || !pool->running) {
+        // Tombstone check: work == NULL signals thread termination
+        if (job.work == NULL) {
             break;
         }
         
-        // Execute the job work function
         job.work(job.data);
         
-        // Signal completion (atomic decrement)
-        if (job.completion_counter) {
-            __atomic_sub_fetch(job.completion_counter, 1, __ATOMIC_SEQ_CST);
+        if (job.handle) {
+            pthread_mutex_lock(&job.handle->mutex);
+            job.handle->count--;
+            if (job.handle->count <= 0) {
+                pthread_cond_broadcast(&job.handle->cond);
+            }
+            pthread_mutex_unlock(&job.handle->mutex);
         }
     }
     return NULL;
@@ -112,7 +119,6 @@ static inline thread_pool_t* thread_pool_create(int num_threads) {
     thread_pool_t *pool = (thread_pool_t*)malloc(sizeof(thread_pool_t));
     pool->num_threads = num_threads;
     pool->queue = job_queue_create(128);
-    pool->running = true;
     pool->threads = (pthread_t*)malloc(num_threads * sizeof(pthread_t));
     
     for (int i = 0; i < num_threads; i++) {
@@ -122,14 +128,9 @@ static inline thread_pool_t* thread_pool_create(int num_threads) {
 }
 
 static inline void thread_pool_destroy(thread_pool_t *pool) {
-    pool->running = false;
-    
-    // Push a tombstone job (NULL work function) for each worker thread
+    // Push exactly one tombstone per thread
     for (int i = 0; i < pool->num_threads; i++) {
-        job_t tombstone;
-        tombstone.work = NULL;
-        tombstone.data = NULL;
-        tombstone.completion_counter = NULL;
+        job_t tombstone = { .work = NULL, .data = NULL, .handle = NULL };
         job_queue_push(pool->queue, tombstone);
     }
     
@@ -142,21 +143,37 @@ static inline void thread_pool_destroy(thread_pool_t *pool) {
     free(pool);
 }
 
-static inline int32_t* job_handle_create(int count) {
-    int32_t *counter = (int32_t*)malloc(sizeof(int32_t));
-    *counter = count;
-    return counter;
+// --- Job Handle / Counter ---
+static inline job_handle_t* job_handle_create(int count) {
+    job_handle_t *h = (job_handle_t*)malloc(sizeof(job_handle_t));
+    pthread_mutex_init(&h->mutex, NULL);
+    pthread_cond_init(&h->cond, NULL);
+    h->count = count;
+    return h;
 }
 
-static inline bool job_handle_complete(int32_t *counter) {
-    if (counter == NULL) return true;
-    int32_t val;
-    __atomic_load(counter, &val, __ATOMIC_SEQ_CST);
-    return val == 0;
+static inline bool job_handle_complete(job_handle_t *h) {
+    if (h == NULL) return true;
+    pthread_mutex_lock(&h->mutex);
+    bool done = (h->count <= 0);
+    pthread_mutex_unlock(&h->mutex);
+    return done;
 }
 
-static inline void job_handle_destroy(int32_t *counter) {
-    free(counter);
+static inline void job_handle_wait(job_handle_t *h) {
+    if (h == NULL) return;
+    pthread_mutex_lock(&h->mutex);
+    while (h->count > 0) {
+        pthread_cond_wait(&h->cond, &h->mutex);
+    }
+    pthread_mutex_unlock(&h->mutex);
+}
+
+static inline void job_handle_destroy(job_handle_t *h) {
+    if (h == NULL) return;
+    pthread_mutex_destroy(&h->mutex);
+    pthread_cond_destroy(&h->cond);
+    free(h);
 }
 
 #endif

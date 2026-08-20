@@ -8,11 +8,9 @@
   result (Ptr Float)
 ])
 
-;; Helper function to cast pointers in Carp
 (defn pointer-cast [p]
   (Pointer.from-long (Pointer.to-long p)))
 
-;; The job worker function
 (defn square-work [data-ptr]
   (let [data (the (Ptr JobData) (pointer-cast data-ptr))
         ref-data (Pointer.to-ref data)
@@ -20,54 +18,39 @@
         res-ptr @(JobData.result ref-data)]
     (Pointer.set res-ptr (* val val))))
 
-;; C function pointer exporter
-(deftemplate square-work-ptr (Fn [] (Ptr ()))
-  "void* $NAME(void)"
-  "$DECL { extern void square_MINUS_work__void(void*); return (void*)square_MINUS_work__void; }")
-
 (deftest jobs-test
   (let [state (Test.State.init 0 0)
         pool (JobSystem.create-pool 4)
         handle (JobSystem.create-handle 4)
-        work-fn (square-work-ptr)
         
-        ;; Allocate result buffers on the heap with initial values
+        ;; Results
         res1 (Pointer.unsafe-alloc 0.0f)
         res2 (Pointer.unsafe-alloc 0.0f)
         res3 (Pointer.unsafe-alloc 0.0f)
         res4 (Pointer.unsafe-alloc 0.0f)
         
-        ;; Create job data packages
-        data1 (JobData.init 2.0f res1)
-        data2 (JobData.init 3.0f res2)
-        data3 (JobData.init 4.0f res3)
-        data4 (JobData.init 5.0f res4)
-        
-        ;; Allocate job data on the heap to pass to workers safely
-        p-data1 (Pointer.unsafe-alloc data1)
-        p-data2 (Pointer.unsafe-alloc data2)
-        p-data3 (Pointer.unsafe-alloc data3)
-        p-data4 (Pointer.unsafe-alloc data4)]
+        ;; Payloads
+        p-data1 (Pointer.unsafe-alloc (JobData.init 2.0f res1))
+        p-data2 (Pointer.unsafe-alloc (JobData.init 3.0f res2))
+        p-data3 (Pointer.unsafe-alloc (JobData.init 4.0f res3))
+        p-data4 (Pointer.unsafe-alloc (JobData.init 5.0f res4))]
     (do
-      (when false
-        (square-work (the (Ptr ()) (Pointer.from-long 0l))))
-      ;; Submit all 4 jobs using the raw function pointer
-      (JobSystem.submit! pool work-fn (pointer-cast p-data1) handle)
-      (JobSystem.submit! pool work-fn (pointer-cast p-data2) handle)
-      (JobSystem.submit! pool work-fn (pointer-cast p-data3) handle)
-      (JobSystem.submit! pool work-fn (pointer-cast p-data4) handle)
+      ;; Submit jobs directly using function pointer
+      (JobSystem.submit-raw! pool square-work (pointer-cast p-data1) handle)
+      (JobSystem.submit-raw! pool square-work (pointer-cast p-data2) handle)
+      (JobSystem.submit-raw! pool square-work (pointer-cast p-data3) handle)
+      (JobSystem.submit-raw! pool square-work (pointer-cast p-data4) handle)
 
-      ;; Active polling loop
-      (while (not (JobSystem.complete? handle))
-        (System.sleep-micros 100))
+      ;; Block until all 4 jobs complete
+      (JobSystem.wait handle)
 
-      ;; Assert results
+      ;; Assertions
       (set! state (assert-equal &state 4.0f (Pointer.to-value res1) "Job 1 (2^2) = 4.0"))
       (set! state (assert-equal &state 9.0f (Pointer.to-value res2) "Job 2 (3^2) = 9.0"))
       (set! state (assert-equal &state 16.0f (Pointer.to-value res3) "Job 3 (4^2) = 16.0"))
       (set! state (assert-equal &state 25.0f (Pointer.to-value res4) "Job 4 (5^2) = 25.0"))
 
-      ;; Clean up allocations
+      ;; Cleanup
       (Pointer.free res1)
       (Pointer.free res2)
       (Pointer.free res3)

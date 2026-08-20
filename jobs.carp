@@ -1,10 +1,10 @@
 (register-type ThreadPool "thread_pool_t")
-(register-type JobHandle "int32_t")
+(register-type JobHandle "job_handle_t")
 
 (relative-include "jobs.h")
 
 (defmodule JobSystem
-  ;; Thread Pool creation/destruction
+  ;; Pool Lifecycle
   (deftemplate create-pool (Fn [Int] (Ptr ThreadPool))
     "thread_pool_t* $NAME(int num_threads)"
     "$DECL { return thread_pool_create(num_threads); }")
@@ -13,27 +13,31 @@
     "void $NAME(thread_pool_t *pool)"
     "$DECL { thread_pool_destroy(pool); }")
 
-  ;; Job Handle management (atomic counters)
+  ;; Handle Lifecycle
   (deftemplate create-handle (Fn [Int] (Ptr JobHandle))
-    "int32_t* $NAME(int count)"
+    "job_handle_t* $NAME(int count)"
     "$DECL { return job_handle_create(count); }")
 
   (deftemplate complete? (Fn [(Ptr JobHandle)] Bool)
-    "bool $NAME(int32_t *handle)"
+    "bool $NAME(job_handle_t *handle)"
     "$DECL { return job_handle_complete(handle); }")
 
+  (deftemplate wait (Fn [(Ptr JobHandle)] ())
+    "void $NAME(job_handle_t *handle)"
+    "$DECL { job_handle_wait(handle); }")
+
   (deftemplate destroy-handle (Fn [(Ptr JobHandle)] ())
-    "void $NAME(int32_t *handle)"
+    "void $NAME(job_handle_t *handle)"
     "$DECL { job_handle_destroy(handle); }")
 
-  ;; Submit a job to the thread pool queue (using a raw function pointer)
-  (deftemplate submit! (Fn [(Ptr ThreadPool) (Ptr ()) (Ptr ()) (Ptr JobHandle)] ())
-    "void $NAME(thread_pool_t *pool, void *work, void *data, int32_t *handle)"
+  ;; Raw Job Dispatch (extracting function pointer from Carp Lambda)
+  (deftemplate submit-raw! (Fn [(Ptr ThreadPool) (Fn [(Ptr ())] ()) (Ptr ()) (Ptr JobHandle)] ())
+    "void $NAME(thread_pool_t *pool, Lambda work, void *data, job_handle_t *handle)"
     "$DECL {
         job_t job;
-        job.work = (job_work_fn)work;
+        job.work = (job_work_fn)work.callback;
         job.data = data;
-        job.completion_counter = handle;
+        job.handle = handle;
         job_queue_push(pool->queue, job);
     }")
 )
