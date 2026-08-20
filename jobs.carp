@@ -3,6 +3,10 @@
 
 (relative-include "jobs.h")
 
+(deftype ClosureBox [
+  func (Fn [(Ptr ())] ())
+])
+
 (defmodule JobSystem
   ;; Pool Lifecycle
   (deftemplate create-pool (Fn [Int] (Ptr ThreadPool))
@@ -30,8 +34,8 @@
     "void $NAME(job_handle_t *handle)"
     "$DECL { job_handle_destroy(handle); }")
 
-  ;; Raw Job Dispatch (extracting function pointer from Carp Lambda)
-  (deftemplate submit-raw! (Fn [(Ptr ThreadPool) (Fn [(Ptr ())] ()) (Ptr ()) (Ptr JobHandle)] ())
+  ;; Submit a raw callback job
+  (deftemplate submit-raw! (Fn [(Ptr ThreadPool) (Fn [b] a) (Ptr ()) (Ptr JobHandle)] ())
     "void $NAME(thread_pool_t *pool, Lambda work, void *data, job_handle_t *handle)"
     "$DECL {
         job_t job;
@@ -40,4 +44,66 @@
         job.handle = handle;
         job_queue_push(pool->queue, job);
     }")
+
+  ;; Submit a heap-allocated ClosureBox by pointer (extracting callback & env)
+  (deftemplate submit-closure! (Fn [(Ptr ThreadPool) (Ptr ()) (Ptr JobHandle)] ())
+    "void $NAME(thread_pool_t *pool, void *work_box, job_handle_t *handle)"
+    "$DECL {
+        job_t job;
+        Lambda *work = &((ClosureBox*)work_box)->func;
+        job.work = (job_work_fn)work->callback;
+        job.data = work->env;
+        job.handle = handle;
+        job_queue_push(pool->queue, job);
+    }")
+
+  ;; Parallel For loop driver in C
+  (deftemplate parallel-for! (Fn [(Ptr ThreadPool) Int Int (Fn [Int (Ptr ())] a) (Ptr ())] ())
+    "void $NAME(thread_pool_t *pool, int count, int chunk_size, Lambda func, void *data)"
+    "$DECL {
+        thread_pool_parallel_for(pool, count, chunk_size, (parallel_for_fn)func.callback, data);
+    }")
+
+  ;; Unsafe helper to allocate uninitialized heap blocks of any type
+  (deftemplate alloc-type (Fn [] (Ptr a))
+    "$a* $NAME(void)"
+    "$DECL { return ($a*)CARP_MALLOC(sizeof($a)); }")
 )
+
+;; --- High-Level Concurrency Abstractions ---
+
+(deftype (Future a) [
+  handle (Ptr JobHandle)
+  result (Ptr a)
+  closure (Ptr ())
+])
+
+(defmodule Future
+  (defn complete? [f]
+    (JobSystem.complete? @(Future.handle f)))
+)
+
+;; Async macro: evaluates expr asynchronously on the threadpool and returns a Future
+(defmacro async [pool expr]
+  `(let-do [handle (JobSystem.create-handle 1)
+            res (JobSystem.alloc-type)
+            work (fn [unused] (let [u (the (Ptr ()) unused)] (Pointer.set res %expr)))
+            box (ClosureBox.init work)
+            p-box (Pointer.unsafe-alloc box)]
+     (do
+       (JobSystem.submit-closure! %pool (Pointer.from-long (Pointer.to-long p-box)) handle)
+       (Future.init handle res (Pointer.from-long (Pointer.to-long p-box))))))
+
+;; Await macro: blocks until the future completes, retrieves the value, cleans up, and returns it
+(defn await [f]
+  (let [handle @(Future.handle &f)
+        res-ptr @(Future.result &f)
+        p-box @(Future.closure &f)]
+    (do
+      (JobSystem.wait handle)
+      (let [val (Pointer.to-value res-ptr)]
+        (do
+          (JobSystem.destroy-handle handle)
+          (Pointer.free res-ptr)
+          (Pointer.free p-box)
+          val)))))

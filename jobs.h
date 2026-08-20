@@ -176,4 +176,46 @@ static inline void job_handle_destroy(job_handle_t *h) {
     free(h);
 }
 
+// --- Parallel For Helper ---
+typedef void (*parallel_for_fn)(int index, void *data);
+
+typedef struct {
+    parallel_for_fn func;
+    void *data;
+    int start;
+    int end;
+} parallel_job_data_t;
+
+static void parallel_job_wrapper(void *arg) {
+    parallel_job_data_t *p = (parallel_job_data_t*)arg;
+    for (int i = p->start; i < p->end; i++) {
+        p->func(i, p->data);
+    }
+    free(p);
+}
+
+static inline void thread_pool_parallel_for(thread_pool_t *pool, int count, int chunk_size, parallel_for_fn func, void *data) {
+    if (count <= 0 || chunk_size <= 0) return;
+    int num_chunks = (count + chunk_size - 1) / chunk_size;
+    job_handle_t *handle = job_handle_create(num_chunks);
+    
+    for (int i = 0; i < count; i += chunk_size) {
+        parallel_job_data_t *p = (parallel_job_data_t*)malloc(sizeof(parallel_job_data_t));
+        p->func = func;
+        p->data = data;
+        p->start = i;
+        p->end = (i + chunk_size > count) ? count : i + chunk_size;
+        
+        job_t job = {
+            .work = parallel_job_wrapper,
+            .data = p,
+            .handle = handle
+        };
+        job_queue_push(pool->queue, job);
+    }
+    
+    job_handle_wait(handle);
+    job_handle_destroy(handle);
+}
+
 #endif

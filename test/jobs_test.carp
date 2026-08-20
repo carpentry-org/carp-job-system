@@ -3,64 +3,44 @@
 (load "jobs.carp")
 (use JobSystem)
 
-(deftype JobData [
-  value Float
-  result (Ptr Float)
-])
-
+;; Helper function to cast pointers in Carp
 (defn pointer-cast [p]
   (Pointer.from-long (Pointer.to-long p)))
 
-(defn square-work [data-ptr]
-  (let [data (the (Ptr JobData) (pointer-cast data-ptr))
-        ref-data (Pointer.to-ref data)
-        val @(JobData.value ref-data)
-        res-ptr @(JobData.result ref-data)]
-    (Pointer.set res-ptr (* val val))))
+;; The parallel-for loop index callback
+(defn set-index [idx data-ptr]
+  (let [p (the (Ptr Float) (pointer-cast data-ptr))]
+    (Pointer.set (Pointer.add p (Long.from-int idx)) (Float.from-int (+ idx 100)))))
+
+;; Dummy calls to force compiler concretization of functions used in C callbacks
+(defn force-concretization []
+  (do
+    (when false
+      (set-index 0 (the (Ptr ()) (Pointer.from-long 0l))))))
 
 (deftest jobs-test
   (let [state (Test.State.init 0 0)
-        pool (JobSystem.create-pool 4)
-        handle (JobSystem.create-handle 4)
-        
-        ;; Results
-        res1 (Pointer.unsafe-alloc 0.0f)
-        res2 (Pointer.unsafe-alloc 0.0f)
-        res3 (Pointer.unsafe-alloc 0.0f)
-        res4 (Pointer.unsafe-alloc 0.0f)
-        
-        ;; Payloads
-        p-data1 (Pointer.unsafe-alloc (JobData.init 2.0f res1))
-        p-data2 (Pointer.unsafe-alloc (JobData.init 3.0f res2))
-        p-data3 (Pointer.unsafe-alloc (JobData.init 4.0f res3))
-        p-data4 (Pointer.unsafe-alloc (JobData.init 5.0f res4))]
+        pool (JobSystem.create-pool 4)]
     (do
-      ;; Submit jobs directly using function pointer
-      (JobSystem.submit-raw! pool square-work (pointer-cast p-data1) handle)
-      (JobSystem.submit-raw! pool square-work (pointer-cast p-data2) handle)
-      (JobSystem.submit-raw! pool square-work (pointer-cast p-data3) handle)
-      (JobSystem.submit-raw! pool square-work (pointer-cast p-data4) handle)
+      (force-concretization)
 
-      ;; Block until all 4 jobs complete
-      (JobSystem.wait handle)
+      ;; 1. Verify High-Level async/await Macros
+      (let [t1 (async pool (* 2.0f 2.0f))
+            t2 (async pool (* 3.0f 3.0f))
+            v1 (await t1)
+            v2 (await t2)]
+        (do
+          (set! state (assert-equal &state 4.0f v1 "async/await Task 1 (2*2) = 4.0"))
+          (set! state (assert-equal &state 9.0f v2 "async/await Task 2 (3*3) = 9.0"))))
 
-      ;; Assertions
-      (set! state (assert-equal &state 4.0f (Pointer.to-value res1) "Job 1 (2^2) = 4.0"))
-      (set! state (assert-equal &state 9.0f (Pointer.to-value res2) "Job 2 (3^2) = 9.0"))
-      (set! state (assert-equal &state 16.0f (Pointer.to-value res3) "Job 3 (4^2) = 16.0"))
-      (set! state (assert-equal &state 25.0f (Pointer.to-value res4) "Job 4 (5^2) = 25.0"))
+      ;; 2. Verify High-Level Parallel-For loop driver (C engine)
+      (let [arr [0.0f 0.0f 0.0f 0.0f 0.0f 0.0f 0.0f 0.0f 0.0f 0.0f]
+            p-arr (Array.unsafe-raw &arr)]
+        (do
+          (JobSystem.parallel-for! pool 10 2 set-index (pointer-cast p-arr))
+          (set! state (assert-equal &state 100.0f @(Array.unsafe-nth &arr 0) "parallel-for idx 0 is 100.0"))
+          (set! state (assert-equal &state 105.0f @(Array.unsafe-nth &arr 5) "parallel-for idx 5 is 105.0"))
+          (set! state (assert-equal &state 109.0f @(Array.unsafe-nth &arr 9) "parallel-for idx 9 is 109.0"))))
 
-      ;; Cleanup
-      (Pointer.free res1)
-      (Pointer.free res2)
-      (Pointer.free res3)
-      (Pointer.free res4)
-      
-      (Pointer.free p-data1)
-      (Pointer.free p-data2)
-      (Pointer.free p-data3)
-      (Pointer.free p-data4)
-      
-      (JobSystem.destroy-handle handle)
       (JobSystem.destroy-pool pool)
       state)))
