@@ -2,22 +2,18 @@
 (use Test)
 (load "../rayon.carp")
 
-(deftemplate ref-to-ptr (Fn [(Ref a)] (Ptr a))
-  "void* $NAME(void* r)"
-  "$DECL { return r; }")
+(deftemplate ref-to-ptr
+             (Fn [(Ref a)] (Ptr a))
+             "void* $NAME(void* r)"
+             "$DECL { return r; }")
 
 (defn square-fn [x] (* x x))
 (defn add-fn [a b] (+ a b))
 (defn increment-ref [r]
   (let [p (ref-to-ptr r)
-        val @r]
-    (Pointer.set p (+ val 1))))
+        val @r] (Pointer.set p (+ val 1))))
 (defn gt-five? [x] (> @x 5))
-(defn get-just-val [m]
-  (match m
-    (Maybe.Just x) x
-    Maybe.Nothing 0))
-
+(defn get-just-val [m] (match m (Maybe.Just x) x Maybe.Nothing 0))
 
 (deftest rayon-test
   (let [state (Test.State.init 0 0)
@@ -26,8 +22,16 @@
       ;; 1. Fork-Join test
       (let [pair (Rayon.join pool (* 10 10) (* 20 20))]
         (do
-          (set! state (assert-equal &state 100 @(Pair.a &pair) "join left (10*10) = 100"))
-          (set! state (assert-equal &state 400 @(Pair.b &pair) "join right (20*20) = 400"))))
+          (set! state
+                (assert-equal &state
+                  100
+                  @(Pair.a &pair)
+                  "join left (10*10) = 100"))
+          (set! state
+                (assert-equal &state
+                  400
+                  @(Pair.b &pair)
+                  "join right (20*20) = 400"))))
 
       ;; 2. Par.map standard & edge cases
       (let [empty-in (the (Array Int) [])
@@ -35,10 +39,26 @@
             input [1 2 3 4 5 6 7 8]
             output (Par.map pool &input &square-fn)]
         (do
-          (set! state (assert-equal &state 0 (Array.length &empty-out) "Par.map empty array produces empty array"))
-          (set! state (assert-equal &state 1 @(Array.unsafe-nth &output 0) "Par.map [0] = 1"))
-          (set! state (assert-equal &state 16 @(Array.unsafe-nth &output 3) "Par.map [3] = 16"))
-          (set! state (assert-equal &state 64 @(Array.unsafe-nth &output 7) "Par.map [7] = 64"))))
+          (set! state
+                (assert-equal &state
+                  0
+                  (Array.length &empty-out)
+                  "Par.map empty array produces empty array"))
+          (set! state
+                (assert-equal &state
+                  1
+                  @(Array.unsafe-nth &output 0)
+                  "Par.map [0] = 1"))
+          (set! state
+                (assert-equal &state
+                  16
+                  @(Array.unsafe-nth &output 3)
+                  "Par.map [3] = 16"))
+          (set! state
+                (assert-equal &state
+                  64
+                  @(Array.unsafe-nth &output 7)
+                  "Par.map [7] = 64"))))
 
       ;; 3. Par.reduce standard & empty cases
       (let [empty-nums (the (Array Int) [])
@@ -46,8 +66,13 @@
             nums [10 20 30 40 50 60 70 80]
             sum-result (Par.reduce pool &nums 0 &add-fn)]
         (do
-          (set! state (assert-equal &state 0 empty-sum "Par.reduce on empty array returns identity"))
-          (set! state (assert-equal &state 360 sum-result "Par.reduce sum = 360"))))
+          (set! state
+                (assert-equal &state
+                  0
+                  empty-sum
+                  "Par.reduce on empty array returns identity"))
+          (set! state
+                (assert-equal &state 360 sum-result "Par.reduce sum = 360"))))
 
       ;; 4. Combined Parallel + SIMD pipeline (testing odd lengths past 4096)
       (let [size 5003
@@ -57,30 +82,65 @@
         (do
           (for [i 0 size]
             (do
-              (Pointer.set (Pointer.add (Array.unsafe-raw &src-a) (Long.from-int i)) 1.5f)
-              (Pointer.set (Pointer.add (Array.unsafe-raw &src-b) (Long.from-int i)) 2.5f)))
-          
-          (Par.simd-add! pool &dst &src-a &src-b)
-          
-          (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 0) "Par.simd-add! start = 4.0"))
-          (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 2500) "Par.simd-add! mid = 4.0"))
-          (set! state (assert-equal &state 4.0f @(Array.unsafe-nth &dst 5002) "Par.simd-add! tail = 4.0"))))
+              (Pointer.set
+                (Pointer.add (Array.unsafe-raw &src-a) (Long.from-int i))
+                1.5f)
+              (Pointer.set
+                (Pointer.add (Array.unsafe-raw &src-b) (Long.from-int i))
+                2.5f)))
 
+          (Par.simd-add! pool &dst &src-a &src-b)
+
+          (set! state
+                (assert-equal &state
+                  4f
+                  @(Array.unsafe-nth &dst 0)
+                  "Par.simd-add! start = 4.0"))
+          (set! state
+                (assert-equal &state
+                  4f
+                  @(Array.unsafe-nth &dst 2500)
+                  "Par.simd-add! mid = 4.0"))
+          (set! state
+                (assert-equal &state
+                  4f
+                  @(Array.unsafe-nth &dst 5002)
+                  "Par.simd-add! tail = 4.0"))))
 
       ;; 5. Par.for-each! test (in-place mutation)
       (let [arr [1 2 3 4]]
         (do
           (Par.for-each! pool &arr &increment-ref)
-          (set! state (assert-equal &state 2 @(Array.unsafe-nth &arr 0) "Par.for-each! mutated element 0"))
-          (set! state (assert-equal &state 5 @(Array.unsafe-nth &arr 3) "Par.for-each! mutated element 3"))))
+          (set! state
+                (assert-equal &state
+                  2
+                  @(Array.unsafe-nth &arr 0)
+                  "Par.for-each! mutated element 0"))
+          (set! state
+                (assert-equal &state
+                  5
+                  @(Array.unsafe-nth &arr 3)
+                  "Par.for-each! mutated element 3"))))
 
       ;; 6. Par.filter test (filtering values > 5)
       (let [input [2 4 6 8 10]
             output (Par.filter pool &input &gt-five?)]
         (do
-          (set! state (assert-equal &state 3 (Array.length &output) "Par.filter length = 3"))
-          (set! state (assert-equal &state 6 @(Array.unsafe-nth &output 0) "Par.filter [0] = 6"))
-          (set! state (assert-equal &state 10 @(Array.unsafe-nth &output 2) "Par.filter [2] = 10"))))
+          (set! state
+                (assert-equal &state
+                  3
+                  (Array.length &output)
+                  "Par.filter length = 3"))
+          (set! state
+                (assert-equal &state
+                  6
+                  @(Array.unsafe-nth &output 0)
+                  "Par.filter [0] = 6"))
+          (set! state
+                (assert-equal &state
+                  10
+                  @(Array.unsafe-nth &output 2)
+                  "Par.filter [2] = 10"))))
 
       ;; 7. Par.find test (find first value > 5)
       (let [input [2 4 6 8 10]
@@ -88,9 +148,19 @@
             res (Par.find pool &input &gt-five?)
             res-none (Par.find pool &input-none &gt-five?)]
         (do
-          (set! state (assert-true &state (Maybe.just? &res) "Par.find matches is Just"))
-          (set! state (assert-equal &state 6 (get-just-val res) "Par.find matches first element = 6"))
-          (set! state (assert-true &state (Maybe.nothing? &res-none) "Par.find no match is Nothing"))))
+          (set! state
+                (assert-true &state
+                  (Maybe.just? &res)
+                  "Par.find matches is Just"))
+          (set! state
+                (assert-equal &state
+                  6
+                  (get-just-val res)
+                  "Par.find matches first element = 6"))
+          (set! state
+                (assert-true &state
+                  (Maybe.nothing? &res-none)
+                  "Par.find no match is Nothing"))))
 
       (JobSystem.destroy-pool pool)
       state)))

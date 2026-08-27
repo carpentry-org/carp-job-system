@@ -5,35 +5,44 @@
 
 (defmodule JobSystem
   ;; Pool Lifecycle
-  (deftemplate create-pool (Fn [Int] (Ptr ThreadPool))
-    "thread_pool_t* $NAME(int num_threads)"
-    "$DECL { return thread_pool_create(num_threads); }")
+  (deftemplate create-pool
+               (Fn [Int] (Ptr ThreadPool))
+               "thread_pool_t* $NAME(int num_threads)"
+               "$DECL { return thread_pool_create(num_threads); }")
 
-  (deftemplate destroy-pool (Fn [(Ptr ThreadPool)] ())
-    "void $NAME(thread_pool_t *pool)"
-    "$DECL { thread_pool_destroy(pool); }")
+  (deftemplate destroy-pool
+               (Fn [(Ptr ThreadPool)] ())
+               "void $NAME(thread_pool_t *pool)"
+               "$DECL { thread_pool_destroy(pool); }")
 
   ;; Handle Lifecycle
-  (deftemplate create-handle (Fn [Int] (Ptr JobHandle))
-    "job_handle_t* $NAME(int count)"
-    "$DECL { return job_handle_create(count); }")
+  (deftemplate create-handle
+               (Fn [Int] (Ptr JobHandle))
+               "job_handle_t* $NAME(int count)"
+               "$DECL { return job_handle_create(count); }")
 
-  (deftemplate complete? (Fn [(Ptr JobHandle)] Bool)
-    "bool $NAME(job_handle_t *handle)"
-    "$DECL { return job_handle_complete(handle); }")
+  (deftemplate complete?
+               (Fn [(Ptr JobHandle)] Bool)
+               "bool $NAME(job_handle_t *handle)"
+               "$DECL { return job_handle_complete(handle); }")
 
-  (deftemplate wait (Fn [(Ptr JobHandle)] ())
-    "void $NAME(job_handle_t *handle)"
-    "$DECL { job_handle_wait(handle); }")
+  (deftemplate wait
+               (Fn [(Ptr JobHandle)] ())
+               "void $NAME(job_handle_t *handle)"
+               "$DECL { job_handle_wait(handle); }")
 
-  (deftemplate destroy-handle (Fn [(Ptr JobHandle)] ())
-    "void $NAME(job_handle_t *handle)"
-    "$DECL { job_handle_destroy(handle); }")
+  (deftemplate destroy-handle
+               (Fn [(Ptr JobHandle)] ())
+               "void $NAME(job_handle_t *handle)"
+               "$DECL { job_handle_destroy(handle); }")
 
   ;; Raw Function Pointer Dispatch
-  (deftemplate submit-raw! (Fn [(Ptr ThreadPool) (Fn [(Ptr ())] ()) (Ptr ()) (Ptr JobHandle)] ())
-    "void $NAME(thread_pool_t *pool, void (*work)(void*), void *data, job_handle_t *handle)"
-    "$DECL {
+  (deftemplate submit-raw!
+               (Fn
+                 [(Ptr ThreadPool) (Fn [(Ptr ())] ()) (Ptr ()) (Ptr JobHandle)]
+                 ())
+               "void $NAME(thread_pool_t *pool, void (*work)(void*), void *data, job_handle_t *handle)"
+               "$DECL {
         job_t job;
         job.work = (job_work_fn)work;
         job.data = data;
@@ -42,47 +51,48 @@
     }")
 
   ;; Closure Dispatch (generic return type to support both Unit and () cleanly)
-  (deftemplate submit-lambda! (Fn [(Ptr ThreadPool) (Fn [(Ptr ())] a) (Ptr ()) (Ptr JobHandle)] ())
-    "void $NAME(thread_pool_t *pool, Lambda work, void *data, job_handle_t *handle)"
-    "$DECL {
+  (deftemplate submit-lambda!
+               (Fn
+                 [(Ptr ThreadPool) (Fn [(Ptr ())] a) (Ptr ()) (Ptr JobHandle)]
+                 ())
+               "void $NAME(thread_pool_t *pool, Lambda work, void *data, job_handle_t *handle)"
+               "$DECL {
         thread_pool_submit_closure(pool, work.callback, work.env, data, handle);
     }")
 
   ;; Parallel For Driver (generic return type to support both Unit and () cleanly)
-  (deftemplate parallel-for! (Fn [(Ptr ThreadPool) Int Int (Fn [Int (Ptr ())] a) (Ptr ())] ())
-    "void $NAME(thread_pool_t *pool, int count, int chunk_size, Lambda func, void *data)"
-    "$DECL {
+  (deftemplate parallel-for!
+               (Fn [(Ptr ThreadPool) Int Int (Fn [Int (Ptr ())] a) (Ptr ())] ())
+               "void $NAME(thread_pool_t *pool, int count, int chunk_size, Lambda func, void *data)"
+               "$DECL {
         thread_pool_parallel_for(pool, count, chunk_size, (parallel_for_raw_fn)func.callback, data);
     }")
 
   ;; Generic Uninitialized Type Allocator
-  (deftemplate alloc-type (Fn [] (Ptr a))
-    "$a* $NAME(void)"
-    "$DECL { return ($a*)CARP_MALLOC(sizeof($a)); }")
-)
+  (deftemplate alloc-type
+               (Fn [] (Ptr a))
+               "$a* $NAME(void)"
+               "$DECL { return ($a*)CARP_MALLOC(sizeof($a)); }"))
 
 ;; --- High-Level Future & Async Abstraction ---
 
-(deftype (Future a) [
-  handle (Ptr JobHandle)
-  result (Ptr a)
-])
+(deftype (Future a) [handle (Ptr JobHandle)
+                     result (Ptr a)])
 
-(defmodule Future
-  (defn complete? [f]
-    (JobSystem.complete? @(Future.handle f)))
-)
+(defmodule Future (defn complete? [f] (JobSystem.complete? @(Future.handle f))))
 
 ;; Async macro: evaluates expr asynchronously on the pool
 (defmacro async [pool expr]
   `(let-do [handle (JobSystem.create-handle 1)
             res (JobSystem.alloc-type)
-            work (fn [unused] 
-                   (let [u (the (Ptr ()) unused)] 
-                     (Pointer.set res %expr)))]
-     (do
-       (JobSystem.submit-lambda! %pool work (Pointer.from-long (Pointer.to-long res)) handle)
-       (Future.init handle res))))
+            work (fn [unused]
+              (let [u (the (Ptr ()) unused)] (Pointer.set res %expr)))]
+    (do
+      (JobSystem.submit-lambda! %pool
+                                work
+                                (Pointer.from-long (Pointer.to-long res))
+                                handle)
+      (Future.init handle res))))
 
 ;; Await: blocks until complete, returns the owned value, and frees memory
 (defn await [f]
@@ -91,7 +101,4 @@
     (do
       (JobSystem.wait handle)
       (let [val (Pointer.to-value res-ptr)]
-        (do
-          (JobSystem.destroy-handle handle)
-          (Pointer.free res-ptr)
-          val)))))
+        (do (JobSystem.destroy-handle handle) (Pointer.free res-ptr) val)))))
