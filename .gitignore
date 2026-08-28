@@ -19,3 +19,4 @@ out/
 build_err.txt
 build_out.txt
 .carp-src/
+docs/
