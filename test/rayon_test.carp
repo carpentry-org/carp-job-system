@@ -1,6 +1,6 @@
 (load "Test.carp")
 (use Test)
-(load "../rayon.carp")
+(load "rayon.carp")
 
 (deftemplate ref-to-ptr
              (Fn [(Ref a)] (Ptr a))

@@ -1,5 +1,5 @@
 (load "jobs.carp")
-(load "../carp-simd/simd.carp")
+(load "git@github.com:carpentry-org/carp-math@master" "simd.carp")
 
 (defmodule Rayon
   ;; Fork-Join Primitive

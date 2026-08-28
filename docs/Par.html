@@ -1,0 +1,167 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/carp-job-system">
+                    <img src="">
+                </a>
+                <div class="title">
+                    carp-job-system
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="JobSystem.html">
+                                JobSystem
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Future.html">
+                                Future
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Rayon.html">
+                                Rayon
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Par.html">
+                                Par
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    Par
+                </h1>
+                <div class="module-description">
+                    
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#filter">
+                        <h3 id="filter">
+                            filter
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ptr ThreadPool), (Ref (Array a) b), (Ref (Fn [(Ref a c)] Bool d) e)] (Array a))
+                    </p>
+                    <pre class="args">
+                        (filter pool arr pred)
+                    </pre>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#find">
+                        <h3 id="find">
+                            find
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ptr ThreadPool), (Ref (Array a) b), (Ref (Fn [(Ref a c)] Bool d) e)] (Maybe a))
+                    </p>
+                    <pre class="args">
+                        (find pool arr pred)
+                    </pre>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#for-each!">
+                        <h3 id="for-each!">
+                            for-each!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ptr ThreadPool), (Ref (Array a) StaticLifetime), (Ref (Fn [(Ref a StaticLifetime)] () b) c)] ())
+                    </p>
+                    <pre class="args">
+                        (for-each! pool arr f)
+                    </pre>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#map">
+                        <h3 id="map">
+                            map
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ptr ThreadPool), (Ref (Array a) b), (Ref (Fn [a] c d) e)] (Array c))
+                    </p>
+                    <pre class="args">
+                        (map pool arr f)
+                    </pre>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#reduce">
+                        <h3 id="reduce">
+                            reduce
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ptr ThreadPool), (Ref (Array a) b), a, (Ref (Fn [a, a] a c) d)] a)
+                    </p>
+                    <pre class="args">
+                        (reduce pool arr identity-val op)
+                    </pre>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#simd-add!">
+                        <h3 id="simd-add!">
+                            simd-add!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ptr ThreadPool), (Ref (Array Float) a), (Ref (Array Float) b), (Ref (Array Float) c)] ())
+                    </p>
+                    <pre class="args">
+                        (simd-add! pool dst src-a src-b)
+                    </pre>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

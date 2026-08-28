@@ -1,0 +1,66 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <a href="https://github.com/carpentry-org/carp-job-system">
+                <div class="logo">
+                    <img src="" alt="Logo">
+                    <div class="index">
+                        <ul>
+                            <li>
+                                <a href="JobSystem.html">
+                                    JobSystem
+                                </a>
+                            </li>
+                            <li>
+                                <a href="Future.html">
+                                    Future
+                                </a>
+                            </li>
+                            <li>
+                                <a href="Rayon.html">
+                                    Rayon
+                                </a>
+                            </li>
+                            <li>
+                                <a href="Par.html">
+                                    Par
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div>
+                    <h1>
+                        carp-job-system
+                    </h1>
+                    <p>A POSIX-threads thread pool for Carp, and a set
+of parallel collection operators built on top of it.</p>
+<pre><code>(load &quot;git@github.com:carpentry-org/carp-job-system@master&quot;)
+</code></pre>
+<h3>The pool</h3>
+<ul>
+<li><a href="./JobSystem.html"><code>JobSystem</code></a> — pool lifecycle, job submission, and waiting</li>
+<li><a href="./Future.html"><code>Future</code></a> — a handle to a result that is not ready yet</li>
+</ul>
+<h3>Parallel operators</h3>
+<ul>
+<li><a href="./Rayon.html"><code>Rayon</code></a> — fork-join over a range</li>
+<li><a href="./Par.html"><code>Par</code></a> — parallel <code>map</code>, <code>filter</code>, <code>reduce</code>, <code>find</code> and friends
+over arrays, in the shape rust's rayon uses. the SIMD paths come from
+<a href="https://github.com/carpentry-org/carp-math">carp-math</a>.</li>
+</ul>
+<p>The C side lives in <code>jobs.h</code> and is pulled in with <code>relative-include</code>, so it
+travels with the library.</p>
+
+                </div>
+            </a>
+        </div>
+    </body>
+</html>

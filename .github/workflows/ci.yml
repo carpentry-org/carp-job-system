@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Carp
+        uses: carpentry-org/setup-carp@v1
+
+      - name: Run tests
+        run: |
+          set -euo pipefail
+          # carp -x runs a single file, so each suite gets its own invocation.
+          for t in test/*_test.carp; do
+            echo "== $t"
+            carp -x "$t"
+          done
+
+      - name: Install carp-fmt
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/carpentry-org/carp-fmt /tmp/carp-fmt
+          (cd /tmp/carp-fmt && carp -b main.carp)
+          sudo install -m 755 /tmp/carp-fmt/out/carp-fmt /usr/local/bin/
+
+      - name: Format check
+        run: |
+          carp-fmt --check $(find . -name '*.carp' \
+            -not -path './out/*' \
+            -not -path './docs/*' \
+            -not -path './.carp-src/*')
+
+      - name: Generate docs
+        run: carp -x gendocs.carp
