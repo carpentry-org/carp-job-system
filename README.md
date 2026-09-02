@@ -23,10 +23,8 @@ This library provides POSIX-threads-based concurrency, futures (`async`/`await`)
 
 ## Installation
 
-Add this library to your project by loading `rayon.carp` (which transitively loads `jobs.carp`):
-
 ```clojure
-(load "path/to/carp-job-system/rayon.carp")
+(load "git@github.com:carpentry-org/carp-job-system@master")
 ```
 
 ### Dependencies
